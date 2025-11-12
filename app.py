@@ -47,7 +47,6 @@ def fetch_news():
         "https://admin.cnnbrasil.com.br/feed/",
         "https://g1.globo.com/rss/g1/saude/",
         "https://feeds.bbci.co.uk/portuguese/topics/c404v09lmw9t/rss.xml",
-        "https://www.gov.br/saude/pt-br/assuntos/noticias/rss.xml",
         "https://rss.dw.com/rdf/rss-pt-saude",
     ]
 
@@ -103,7 +102,7 @@ def listar_noticias():
             "title": n.title,
             "link": n.link,
             "summary": n.summary,
-            "published": n.published.strftime("%Y-%m-%d %H:%M:%S")
+            "published": n.published.strftime("%Y-%m-%d")
         }
         for n in noticias
     ]
