@@ -1,18 +1,14 @@
-# app.py
 from fastapi import FastAPI
 import feedparser
 from bs4 import BeautifulSoup
+import requests
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, desc
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
-# =========================================================
-# INICIALIZAÇÃO DO FASTAPI
-# =========================================================
 app = FastAPI(title="News Scraper API")
 
-# ✅ CORS deve vir logo após a criação do app
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -33,11 +29,32 @@ class News(Base):
     title = Column(String(255), unique=True)
     link = Column(String(500), unique=True)
     summary = Column(Text)
+    image = Column(String(500))
     published = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
 Session = sessionmaker(bind=engine)
 session = Session()
+
+# =========================================================
+# FUNÇÃO AUXILIAR PARA PEGAR A PRIMEIRA IMAGEM
+# =========================================================
+def get_first_image(url):
+    try:
+        response = requests.get(url, timeout=5)
+        soup = BeautifulSoup(response.text, "html.parser")
+        img_tag = soup.find("img")
+        if img_tag and img_tag.get("src"):
+            src = img_tag["src"]
+            if src.startswith("//"):
+                src = "https:" + src
+            elif src.startswith("/"):
+                domain = url.split("/")[2]
+                src = f"https://{domain}{src}"
+            return src
+    except Exception:
+        pass
+    return None
 
 # =========================================================
 # FUNÇÃO PARA BUSCAR E SALVAR NOTÍCIAS
@@ -50,36 +67,48 @@ def fetch_news():
         "https://rss.dw.com/rdf/rss-pt-saude",
     ]
 
-    keywords = ["saúde", "hospital", "doença", "médico", "tratamento", "covid", "vacina", "IRB PRIME CARE","IRB","IRB SÂO PAULO","irb prime care"]
+    keywords = [
+        "saúde", "hospital", "doença", "médico", "tratamento", "covid", "vacina",
+        "IRB PRIME CARE", "IRB", "IRB SÂO PAULO", "irb prime care"
+    ]
     count_new = 0
 
     for url in feeds:
-        print(f"🔍 Coletando do feed: {url}")
         try:
             feed = feedparser.parse(url)
-            print(f"📥 {len(feed.entries)} notícias encontradas.")
             for entry in feed.entries:
                 title = entry.title
                 link = entry.link
                 summary = entry.get("summary", "")
                 clean_summary = BeautifulSoup(summary, "html.parser").get_text()
+
                 text_to_search = f"{title} {clean_summary}".lower()
                 if not any(word in text_to_search for word in keywords):
                     continue
-                exists = session.query(News).filter_by(link=link).first()
+
+                exists = session.query(News).filter(
+                    (News.link == link) | (News.title == title)
+                ).first()
                 if exists:
                     continue
-                news_item = News(
-                    title=title,
-                    link=link,
-                    summary=clean_summary,
-                    published=datetime.utcnow()
-                )
-                session.add(news_item)
-                count_new += 1
-        except Exception as e:
-            print(f"⚠️ Erro ao acessar {url}: {e}")
-    session.commit()
+
+                image_url = get_first_image(link)
+                try:
+                    news_item = News(
+                        title=title,
+                        link=link,
+                        summary=clean_summary,
+                        image=image_url,
+                        published=datetime.utcnow()
+                    )
+                    session.add(news_item)
+                    session.commit()
+                    count_new += 1
+                except Exception:
+                    session.rollback()
+        except Exception:
+            continue
+
     return count_new
 
 # =========================================================
@@ -88,20 +117,22 @@ def fetch_news():
 @app.get("/atualizar")
 def atualizar_noticias():
     novas = fetch_news()
-    if novas > 0:
-        return {"message": f"✅ {novas} novas notícias de saúde adicionadas."}
-    else:
-        return {"message": "🟢 As notícias já estão atualizadas."}
+    return {
+        "message": f"✅ {novas} novas notícias de saúde adicionadas." if novas > 0
+        else "🟢 As notícias já estão atualizadas."
+    }
 
 @app.get("/noticias")
 def listar_noticias():
-    noticias = session.query(News).order_by(desc(News.published)).all()
+    # 🔥 Retorna apenas os 30 mais recentes para não travar o front
+    noticias = session.query(News).order_by(desc(News.published)).limit(30).all()
     return [
         {
             "id": n.id,
             "title": n.title,
             "link": n.link,
             "summary": n.summary,
+            "image": n.image,
             "published": n.published.strftime("%Y-%m-%d")
         }
         for n in noticias
