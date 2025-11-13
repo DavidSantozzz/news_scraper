@@ -137,3 +137,18 @@ def listar_noticias():
         }
         for n in noticias
     ]
+
+@app.get("/noticias/{id}")
+def obter_noticia(id: int):
+    noticia = session.query(News).filter_by(id=id).first()
+    if not noticia:
+        return {"error": "Notícia não encontrada"}
+
+    return {
+        "id": noticia.id,
+        "title": noticia.title,
+        "link": noticia.link,
+        "summary": noticia.summary,
+        "published": noticia.published.strftime("%Y-%m-%d"),
+        "image": getattr(noticia, "image", None)
+    }
