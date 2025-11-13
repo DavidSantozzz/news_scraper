@@ -67,10 +67,6 @@ def fetch_news():
         "https://rss.dw.com/rdf/rss-pt-saude",
     ]
 
-    keywords = [
-        "saúde", "hospital", "doença", "médico", "tratamento", "covid", "vacina",
-        "IRB PRIME CARE", "IRB", "IRB SÂO PAULO", "irb prime care"
-    ]
     count_new = 0
 
     for url in feeds:
@@ -78,21 +74,24 @@ def fetch_news():
             feed = feedparser.parse(url)
             for entry in feed.entries:
                 title = entry.title
-                link = entry.link
+                link = entry.link.lower()  # 👈 transforma em minúsculo pra facilitar
                 summary = entry.get("summary", "")
                 clean_summary = BeautifulSoup(summary, "html.parser").get_text()
 
-                text_to_search = f"{title} {clean_summary}".lower()
-                if not any(word in text_to_search for word in keywords):
-                    continue
+                # 🩺 FILTRO: só mantém se a URL indicar que é notícia de saúde
+                if not any(keyword in link for keyword in ["/saude", "health", "saúde", "pt-saude"]):
+                    continue  # pula notícias fora da área da saúde
 
+                # Verifica se já existe
                 exists = session.query(News).filter(
                     (News.link == link) | (News.title == title)
                 ).first()
                 if exists:
                     continue
 
+                # Pega imagem
                 image_url = get_first_image(link)
+
                 try:
                     news_item = News(
                         title=title,
@@ -111,6 +110,8 @@ def fetch_news():
 
     return count_new
 
+
+
 # =========================================================
 # ROTAS
 # =========================================================
@@ -124,7 +125,6 @@ def atualizar_noticias():
 
 @app.get("/noticias")
 def listar_noticias():
-    # 🔥 Retorna apenas os 30 mais recentes para não travar o front
     noticias = session.query(News).order_by(desc(News.published)).limit(30).all()
     return [
         {
